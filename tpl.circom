@@ -2,7 +2,7 @@ pragma circom 2.0.3;
 
 include "CIRCUIT_FOLDER/regex_helpers.circom";
 
-template TEMPLATE_NAME_PLACEHOLDER (msg_bytes, reveal_bytes, group_idx) {
+template TEMPLATE_NAME_PLACEHOLDER (msg_bytes, reveal_bytes) {
     signal input msg[msg_bytes];
     signal input match_idx;
     signal output start_idx;
