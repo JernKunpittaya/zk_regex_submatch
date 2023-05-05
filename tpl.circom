@@ -2,7 +2,7 @@ pragma circom 2.0.3;
 
 include "helpers/regex_helpers.circom";
 
-template TEMPLATE_NAME_PLACEHOLDER (msg_bytes, reveal_bytes) {
+template TEMPLATE_NAME_PLACEHOLDER (msg_bytes, reveal_bytes, group_idx) {
     signal input msg[msg_bytes];
     signal input match_idx;
     signal output start_idx;
@@ -33,12 +33,12 @@ template TEMPLATE_NAME_PLACEHOLDER (msg_bytes, reveal_bytes) {
 
     for (var i = 0; i < num_bytes; i++) {
         if (i == 0) {
-            count += or_track[0].out;
+            count += or_track[0][group_idx].out;
         }
         else {
             check_start[i] = AND();
-            check_start[i].a <== or_track[i].out;
-            check_start[i].b <== 1 - or_track[i-1].out;
+            check_start[i].a <== or_track[i][group_idx].out;
+            check_start[i].b <== 1 - or_track[i-1][group_idx].out;
 
             count += check_start[i].out;
 
@@ -53,7 +53,7 @@ template TEMPLATE_NAME_PLACEHOLDER (msg_bytes, reveal_bytes) {
         }
 
         matched_idx_eq[i] = IsEqual();
-        matched_idx_eq[i].in[0] <== or_track[i].out * count;
+        matched_idx_eq[i].in[0] <== or_track[i][group_idx].out * count;
         matched_idx_eq[i].in[1] <== match_idx + 1;
     }
 

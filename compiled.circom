@@ -2,7 +2,7 @@ pragma circom 2.0.3;
 
 include "helpers/regex_helpers.circom";
 
-template Regex (msg_bytes, reveal_bytes) {
+template Regex (msg_bytes, reveal_bytes, group_idx) {
     signal input msg[msg_bytes];
     signal input match_idx;
     signal output start_idx;
@@ -202,21 +202,63 @@ template Regex (msg_bytes, reveal_bytes) {
         final_state_sum[i] <== final_state_sum[i-1] + states[i][12];
     }
     entire_count <== final_state_sum[num_bytes];
-    signal tracked[num_bytes];
-    signal output reveal[num_bytes];
-    signal and_track[2*num_bytes];
-    signal or_track[num_bytes];
+    signal reveal[num_bytes];
+    component and_track0[num_bytes][7];
+    component and_track1[num_bytes][2];
+    component and_track2[num_bytes][2];
+    component or_track[num_bytes][3];
     for (var i = 0; i < num_bytes; i++) {
-        or_track[i]= MultiOR(2);
-        and_track[2*i+0] = AND();
-        and_track[2*i+0].a <== states[i+1][1];
-        and_track[2*i+0].b <== states[i][10];
-        or_track[i].in[0] <== and_track[2*i+0].out;
-        and_track[2*i+1] = AND();
-        and_track[2*i+1].a <== states[i+1][1];
-        and_track[2*i+1].b <== states[i][1];
-        or_track[i].in[1] <== and_track[2*i+1].out;
-        reveal[i] <== in[i] * or_track[i].out;
+        or_track[i][0] = MultiOR(7);
+        and_track0[i][0] = AND();
+        and_track0[i][0].a <== states[i+1][9];
+        and_track0[i][0].b <== states[i][8];
+        or_track[i][0].in[0] <== and_track0[i][0].out;
+        and_track0[i][1] = AND();
+        and_track0[i][1].a <== states[i+1][9];
+        and_track0[i][1].b <== states[i][3];
+        or_track[i][0].in[1] <== and_track0[i][1].out;
+        and_track0[i][2] = AND();
+        and_track0[i][2].a <== states[i+1][10];
+        and_track0[i][2].b <== states[i][9];
+        or_track[i][0].in[2] <== and_track0[i][2].out;
+        and_track0[i][3] = AND();
+        and_track0[i][3].a <== states[i+1][1];
+        and_track0[i][3].b <== states[i][10];
+        or_track[i][0].in[3] <== and_track0[i][3].out;
+        and_track0[i][4] = AND();
+        and_track0[i][4].a <== states[i+1][2];
+        and_track0[i][4].b <== states[i][1];
+        or_track[i][0].in[4] <== and_track0[i][4].out;
+        and_track0[i][5] = AND();
+        and_track0[i][5].a <== states[i+1][3];
+        and_track0[i][5].b <== states[i][2];
+        or_track[i][0].in[5] <== and_track0[i][5].out;
+        and_track0[i][6] = AND();
+        and_track0[i][6].a <== states[i+1][1];
+        and_track0[i][6].b <== states[i][1];
+        or_track[i][0].in[6] <== and_track0[i][6].out;
+        or_track[i][1] = MultiOR(2);
+        and_track1[i][0] = AND();
+        and_track1[i][0].a <== states[i+1][9];
+        and_track1[i][0].b <== states[i][8];
+        or_track[i][1].in[0] <== and_track1[i][0].out;
+        and_track1[i][1] = AND();
+        and_track1[i][1].a <== states[i+1][9];
+        and_track1[i][1].b <== states[i][3];
+        or_track[i][1].in[1] <== and_track1[i][1].out;
+        or_track[i][2] = MultiOR(2);
+        and_track2[i][0] = AND();
+        and_track2[i][0].a <== states[i+1][1];
+        and_track2[i][0].b <== states[i][10];
+        or_track[i][2].in[0] <== and_track2[i][0].out;
+        and_track2[i][1] = AND();
+        and_track2[i][1].a <== states[i+1][1];
+        and_track2[i][1].b <== states[i][1];
+        or_track[i][2].in[1] <== and_track2[i][1].out;
+    }
+    
+    for (var i = 0; i < num_bytes; i++) {
+        reveal[i] <== in[i] * or_track[i][group_idx].out;
     }
     
 
@@ -233,12 +275,12 @@ template Regex (msg_bytes, reveal_bytes) {
 
     for (var i = 0; i < num_bytes; i++) {
         if (i == 0) {
-            count += or_track[0].out;
+            count += or_track[0][group_idx].out;
         }
         else {
             check_start[i] = AND();
-            check_start[i].a <== or_track[i].out;
-            check_start[i].b <== 1 - or_track[i-1].out;
+            check_start[i].a <== or_track[i][group_idx].out;
+            check_start[i].b <== 1 - or_track[i-1][group_idx].out;
 
             count += check_start[i].out;
 
@@ -253,7 +295,7 @@ template Regex (msg_bytes, reveal_bytes) {
         }
 
         matched_idx_eq[i] = IsEqual();
-        matched_idx_eq[i].in[0] <== or_track[i].out * count;
+        matched_idx_eq[i].in[0] <== or_track[i][group_idx].out * count;
         matched_idx_eq[i].in[1] <== match_idx + 1;
     }
 

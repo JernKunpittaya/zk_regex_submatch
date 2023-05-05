@@ -231,43 +231,47 @@ async function generateCircuit(regex, circuitName) {
   init_code.push("");
 
   const reveal_code = [];
-  // hard code case 2: num
-  reveal_code.push("signal tracked[num_bytes];");
-  //   let tmp_tracked = "";
 
-  //   for (const trans of tags[2]) {
-  //     tmp_tracked += `states[i+1][${JSON.parse(trans)[1]}]*states[i][${
-  //       JSON.parse(trans)[0]
-  //     }]+`;
-  //   }
-  //
-
-  //   let or_track = 0;
-  reveal_code.push("signal output reveal[num_bytes];");
-  reveal_code.push("signal and_track[2*num_bytes];");
-  reveal_code.push("signal or_track[num_bytes];");
-  reveal_code.push("for (var i = 0; i < num_bytes; i++) {");
-  reveal_code.push(`\tor_track[i]= MultiOR(${tags[2].length});`);
-  let and_track = 0;
-  for (let tranInd = 0; tranInd < tags[2].length; tranInd++) {
-    reveal_code.push(`\tand_track[2*i+${and_track}] = AND();`);
-    reveal_code.push(
-      `\tand_track[2*i+${and_track}].a <== states[i+1][${
-        JSON.parse(tags[2][tranInd])[1]
-      }];`
-    );
-    reveal_code.push(
-      `\tand_track[2*i+${and_track}].b <== states[i][${
-        JSON.parse(tags[2][tranInd])[0]
-      }];`
-    );
-
-    reveal_code.push(
-      `\tor_track[i].in[${tranInd}] <== and_track[2*i+${and_track}].out;`
-    );
-    and_track += 1;
+  reveal_code.push("signal reveal[num_bytes];");
+  for (let i = 0; i < Object.keys(tags).length; i++) {
+    reveal_code.push(`component and_track${i}[num_bytes][${tags[i].length}];`);
   }
-  reveal_code.push("\treveal[i] <== in[i] * or_track[i].out;");
+
+  reveal_code.push(
+    `component or_track[num_bytes][${Object.keys(tags).length}];`
+  );
+
+  // calculate or_track for all tags
+  reveal_code.push("for (var i = 0; i < num_bytes; i++) {");
+
+  for (let tagId = 0; tagId < Object.keys(tags).length; tagId++) {
+    reveal_code.push(
+      `\tor_track[i][${tagId}] = MultiOR(${tags[tagId].length});`
+    );
+    for (let tranId = 0; tranId < tags[tagId].length; tranId++) {
+      reveal_code.push(`\tand_track${tagId}[i][${tranId}] = AND();`);
+      reveal_code.push(
+        `\tand_track${tagId}[i][${tranId}].a <== states[i+1][${
+          JSON.parse(tags[tagId][tranId])[1]
+        }];`
+      );
+      reveal_code.push(
+        `\tand_track${tagId}[i][${tranId}].b <== states[i][${
+          JSON.parse(tags[tagId][tranId])[0]
+        }];`
+      );
+
+      reveal_code.push(
+        `\tor_track[i][${tagId}].in[${tranId}] <== and_track${tagId}[i][${tranId}].out;`
+      );
+    }
+  }
+  reveal_code.push("}");
+  reveal_code.push("");
+
+  // calculate reveal
+  reveal_code.push("for (var i = 0; i < num_bytes; i++) {");
+  reveal_code.push("\treveal[i] <== in[i] * or_track[i][group_idx].out;");
   reveal_code.push("}");
   reveal_code.push("");
 
