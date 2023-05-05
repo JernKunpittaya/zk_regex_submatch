@@ -1,8 +1,9 @@
-// given we already have input as the final graph from frontend.
 const fs = require("fs");
+const path = require("path");
+const regexpTree = require("regexp-tree");
+const assert = require("assert");
 
-async function generateCircuit(regex, circuitLibPath, circuitName) {
-  // calculate final final graph, then extract forward_tran, rev_tran, and change tags into array format
+async function generateCircuit(regex, circuitName) {
   let forward_tran = {
     0: { '["D"]': "4" },
     1: { '["1","2","/"]': "1", '[";"]': "2" },
@@ -53,25 +54,10 @@ async function generateCircuit(regex, circuitLibPath, circuitName) {
     1: ['["8","9"]', '["3","9"]'],
     2: ['["10","1"]', '["1","1"]'],
   };
-
-  let prereq_track = {};
-  let visitted = {};
-  for (let i = 0; i < rev_tran.length; i++) {
-    prereq_track[i] = rev_tran[i].length;
-    visitted[i] = false;
-  }
-  console.log(prereq_track);
-  console.log(visitted);
-
-  function createSet(n) {
-    const set = new Set();
-    for (let i = 0; i <= n; i++) {
-      set.add(i.toString());
-    }
-    return set;
-  }
-  // N = final_graph["states"].length
   const N = 13;
+  const accept_states = new Set();
+  accept_states.add(12);
+
   let eq_i = 0;
   let lt_i = 0;
   let and_i = 0;
@@ -80,22 +66,16 @@ async function generateCircuit(regex, circuitLibPath, circuitName) {
   let lines = [];
   lines.push("for (var i = 0; i < num_bytes; i++) {");
 
-  // currently in the i --> i+1 loop
-  // We have every states[i][next] available
-
-  // init i = 0;
-  // states[0][1], states[0][2]..., states[0][N-1] = 0
-  // states[0][0], states [1][0], ... states[Numbytes -1 ][0]=1
-  // stateSum
-  for (let currNode = 0; currNode < N; currNode++) {
-    // calculate its states[i][currNode] by multiple OR from rev_graph
-    let currNodeNotTo = createSet(N);
-    // now calculate next node
-    for (let edge in forward_tran[currNode]) {
-      let nextNode = forward_tran[currNode][edge];
-      let vals = new Set(JSON.parse(edge));
-      currNodeNotTo.delete(nextNode);
+  for (let i = 1; i < N; i++) {
+    const outputs = [];
+    for (let [k, prev_i] of rev_tran[i]) {
+      let vals = new Set(JSON.parse(k));
       const eq_outputs = [];
+
+      const uppercase = new Set("ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""));
+      const lowercase = new Set("abcdefghijklmnopqrstuvwxyz".split(""));
+      const digits = new Set("0123456789".split(""));
+
       if (
         new Set([...uppercase].filter((x) => vals.has(x))).size ===
         uppercase.size
@@ -172,7 +152,7 @@ async function generateCircuit(regex, circuitLibPath, circuitName) {
       }
 
       lines.push(`\tand[${and_i}][i] = AND();`);
-      lines.push(`\tand[${and_i}][i].a <== states[i][${currNode}];`);
+      lines.push(`\tand[${and_i}][i].a <== states[i][${prev_i}];`);
 
       if (eq_outputs.length === 1) {
         lines.push(
@@ -190,95 +170,36 @@ async function generateCircuit(regex, circuitLibPath, circuitName) {
         lines.push(`\tand[${and_i}][i].b <== multi_or[${multi_or_i}][i].out;`);
         multi_or_i += 1;
       }
-      // dictNextCurr[JSON.stringify([nextNode, currNode])] = and_i;
-      lines.push(
-        `\tstates_tran[i+1][${nextNode}][${currNode}] <== and[${and_i}][i].out;`
-      );
+      outputs.push(and_i);
       and_i += 1;
     }
-    // May not be necessary
-    for (const leftover of currNodeNotTo) {
-      // dictNextCurr[JSON.stringify([leftover, currNode])] = and_i;
-      lines.push(`\tstates_tran[i+1][${leftover}][${currNode}] <== 0;`);
-    }
-    for (let nowNode = 1; nowNode < N; nowNode++) {
-      if (rev_tran[nowNode].length == 1) {
+
+    if (outputs.length === 1) {
+      lines.push(`\tstates[i+1][${i}] <== and[${outputs[0]}][i].out;`);
+    } else if (outputs.length > 1) {
+      lines.push(`\tmulti_or[${multi_or_i}][i] = MultiOR(${outputs.length});`);
+      for (let output_i = 0; output_i < outputs.length; output_i++) {
         lines.push(
-          `\tstates[i+1][${nowNode}] <== states_tran[i+1][${nowNode}][${rev_tran[nowNode][0][1]}];`
+          `\tmulti_or[${multi_or_i}][i].in[${output_i}] <== and[${outputs[output_i]}][i].out;`
         );
-      } else if (rev_tran[nowNode].length > 1) {
-        lines.push(
-          `\tmulti_or[${multi_or_i}][i] = MultiOR(${rev_tran[nowNode].length});`
-        );
-        for (let edge_i = 0; edge_i < rev_tran[nowNode].length; edge_i++) {
-          // push stuffs = state[i+1][nowNode][rev_tran[nowNode][edge]]
-          lines.push(
-            `\tmulti_or[${multi_or_i}][i].in[${edge_i}] <== states_tran[i+1][${nowNode}][${rev_tran[nowNode][edge_i][1]}];`
-          );
-        }
-        lines.push(
-          `\tstates[i+1][${nowNode}] <== multi_or[${multi_or_i}][i].out;`
-        );
-        multi_or_i += 1;
       }
+      lines.push(`\tstates[i+1][${i}] <== multi_or[${multi_or_i}][i].out;`);
+      multi_or_i += 1;
     }
   }
 
   lines.push("}");
 
   lines.push("signal final_state_sum[num_bytes+1];");
-  // generalized accepted_states later, now use as 12
-  lines.push(`final_state_sum[0] <== states[0][12];`);
+  // accepted states
+  lines.push(`final_state_sum[0] <== states[0][${N - 1}];`);
   lines.push("for (var i = 1; i <= num_bytes; i++) {");
-  lines.push(`\tfinal_state_sum[i] <== final_state_sum[i-1] + states[i][12];`);
+  // accepted states
+  lines.push(
+    `\tfinal_state_sum[i] <== final_state_sum[i-1] + states[i][${N - 1}];`
+  );
   lines.push("}");
   lines.push("entire_count <== final_state_sum[num_bytes];");
-
-  let init_code = [];
-
-  init_code.push("for (var i = 0; i < num_bytes; i++) {");
-  init_code.push("\tstates[i][0] <== 1;");
-  init_code.push("}");
-
-  init_code.push(`for (var i = 1; i < ${N}; i++) {`);
-  init_code.push("\tstates[0][i] <== 0;");
-  init_code.push("}");
-
-  init_code.push("");
-
-  const reveal_code = [];
-  // output reveal or not?
-  reveal_code.push(`signal output reveal[num_bytes];`);
-  reveal_code.push(`for (var i = 0; i < num_bytes; i++) {`);
-
-  let matched_group_trans = [];
-  for (let i in tags) {
-    matched_group_trans.push(tags[i].map((str) => JSON.parse(str)));
-  }
-  // console.log("tag new: ", matched_group_trans);
-
-  if (matched_group_trans[group_index].length === 1) {
-    lines.push(
-      `\treveal[i] <== states_tran[i+1][${matched_group_trans[group_index][0][1]}][${matched_group_trans[group_index][0][0]}];`
-    );
-  } else if (matched_group_trans[group_index].length > 1) {
-    lines.push(
-      `\tmulti_or[${multi_or_i}][i] = MultiOR(${matched_group_trans[group_index].length});`
-    );
-    for (
-      let index = 0;
-      index < matched_group_trans[group_index].length;
-      index++
-    ) {
-      lines.push(
-        `\tmulti_or[${multi_or_i}][i].in[${index}] <== states_tran[i+1][${matched_group_trans[group_index][index][1]}][${matched_group_trans[group_index][index][0]}];`
-      );
-      lines.push(`\treveal[i] <== multi_or[${multi_or_i}][i].out;`);
-      multi_or_i += 1;
-    }
-  }
-  reveal_code.push("}");
-  reveal_code.push("");
 
   let declarations = [];
 
@@ -295,21 +216,72 @@ async function generateCircuit(regex, circuitLibPath, circuitName) {
     declarations.push(`component multi_or[${multi_or_i}][num_bytes];`);
   }
   declarations.push(`signal states[num_bytes+1][${N}];`);
-  declarations.push(`signal states_tran[num_bytes+1][${N}][${N}];`);
   declarations.push("");
 
+  let init_code = [];
+
+  init_code.push("for (var i = 0; i < num_bytes; i++) {");
+  init_code.push("\tstates[i][0] <== 1;");
+  init_code.push("}");
+
+  init_code.push(`for (var i = 1; i < ${N}; i++) {`);
+  init_code.push("\tstates[0][i] <== 0;");
+  init_code.push("}");
+
+  init_code.push("");
+
+  const reveal_code = [];
+  // hard code case 2: num
+  reveal_code.push("signal tracked[num_bytes];");
+  //   let tmp_tracked = "";
+
+  //   for (const trans of tags[2]) {
+  //     tmp_tracked += `states[i+1][${JSON.parse(trans)[1]}]*states[i][${
+  //       JSON.parse(trans)[0]
+  //     }]+`;
+  //   }
+  //
+
+  //   let or_track = 0;
+  reveal_code.push("signal output reveal[num_bytes];");
+  reveal_code.push("signal and_track[2*num_bytes];");
+  reveal_code.push("signal or_track[num_bytes];");
+  reveal_code.push("for (var i = 0; i < num_bytes; i++) {");
+  reveal_code.push(`\tor_track[i]= MultiOR(${tags[2].length});`);
+  let and_track = 0;
+  for (let tranInd = 0; tranInd < tags[2].length; tranInd++) {
+    reveal_code.push(`\tand_track[2*i+${and_track}] = AND();`);
+    reveal_code.push(
+      `\tand_track[2*i+${and_track}].a <== states[i+1][${
+        JSON.parse(tags[2][tranInd])[1]
+      }];`
+    );
+    reveal_code.push(
+      `\tand_track[2*i+${and_track}].b <== states[i][${
+        JSON.parse(tags[2][tranInd])[0]
+      }];`
+    );
+
+    reveal_code.push(
+      `\tor_track[i].in[${tranInd}] <== and_track[2*i+${and_track}].out;`
+    );
+    and_track += 1;
+  }
+  reveal_code.push("\treveal[i] <== in[i] * or_track[i].out;");
+  reveal_code.push("}");
+  reveal_code.push("");
+
   lines = [...declarations, ...init_code, ...lines, ...reveal_code];
+
   try {
     let tpl = await (
       await fs.promises.readFile(`${__dirname}/tpl.circom`)
     ).toString();
     tpl = tpl.replace("TEMPLATE_NAME_PLACEHOLDER", circuitName || "Regex");
-    tpl = tpl.replace(/CIRCUIT_FOLDER/g, circuitLibPath || "../circuits");
+    tpl = tpl.replace("COMPILED_CONTENT_PLACEHOLDER", lines.join("\n\t"));
     tpl = tpl.replace(/\t/g, " ".repeat(4));
 
-    const outputPath = `${__dirname}/../build/${
-      circuitName || "compiled"
-    }.circom`;
+    const outputPath = `${__dirname}/${circuitName || "compiled"}.circom`;
     await fs.promises.writeFile(outputPath, tpl);
     process.env.VERBOSE &&
       console.log(`Circuit compiled to ${path.normalize(outputPath)}`);
@@ -317,4 +289,7 @@ async function generateCircuit(regex, circuitLibPath, circuitName) {
     console.log(error);
   }
 }
-module.exports = { generateCircuit };
+
+module.exports = {
+  generateCircuit,
+};
