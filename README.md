@@ -1,3 +1,7 @@
+[DEPRECATED] See https://github.com/JernKunpittaya/full_zk_regex instead
+
+A repo to create circom circuit for zk regex
+
 # zk_regex_submatch
 
 Working on explore.js file
